@@ -1,0 +1,5 @@
+{
+  "name": "Informatics Racer",
+  "description": "A simple racing game where you dodge obstacles, collect coins, and answer Informatics questions from mystery boxes to gain extra lives. The game features 10 progressively challenging levels.",
+  "requestFramePermissions": []
+}
