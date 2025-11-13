@@ -96,6 +96,7 @@ const App: React.FC = () => {
     const lastSpawnTime = useRef(Date.now());
     const lastFrameTime = useRef(Date.now());
     const musicIntervalRef = useRef<number | null>(null);
+    const gameContainerRef = useRef<HTMLDivElement>(null);
 
     const currentLevelConfig = LEVELS[level - 1];
     
@@ -137,15 +138,44 @@ const App: React.FC = () => {
 
     const handleKeyDown = (e: KeyboardEvent) => { keysPressed.current[e.key] = true; };
     const handleKeyUp = (e: KeyboardEvent) => { keysPressed.current[e.key] = false; };
+    
+    const handleTouch = useCallback((e: TouchEvent) => {
+        if (gameState !== GameState.Playing) return;
+        e.preventDefault();
+        const gameEl = gameContainerRef.current;
+        if (!gameEl) return;
+
+        const touch = e.touches[0];
+        const rect = gameEl.getBoundingClientRect();
+        const x = touch.clientX - rect.left;
+        const xPercent = (x / rect.width) * 100;
+        
+        setPlayer(p => {
+            const newX = xPercent - p.width / 2; // Center the car under the touch
+            return { ...p, x: Math.max(0, Math.min(100 - p.width, newX)) };
+        });
+    }, [gameState]);
+
 
     useEffect(() => {
         window.addEventListener('keydown', handleKeyDown);
         window.addEventListener('keyup', handleKeyUp);
+        
+        const gameEl = gameContainerRef.current;
+        if (gameEl) {
+            gameEl.addEventListener('touchstart', handleTouch, { passive: false });
+            gameEl.addEventListener('touchmove', handleTouch, { passive: false });
+        }
+
         return () => {
             window.removeEventListener('keydown', handleKeyDown);
             window.removeEventListener('keyup', handleKeyUp);
+            if (gameEl) {
+                gameEl.removeEventListener('touchstart', handleTouch);
+                gameEl.removeEventListener('touchmove', handleTouch);
+            }
         };
-    }, []);
+    }, [handleTouch]);
 
     const spawnGameObject = useCallback(() => {
         const { objectProbabilities } = currentLevelConfig;
@@ -341,7 +371,7 @@ const App: React.FC = () => {
                           <h2 className="text-2xl font-bold mb-4">{currentQuestion?.question}</h2>
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             {currentQuestion?.options.map(option => (
-                                <button key={option} onClick={() => handleQuizAnswer(option)} className="bg-purple-600 hover:bg-purple-700 text-white font-semibold py-3 px-4 rounded-lg transition duration-200">
+                                <button key={option} onClick={() => handleQuizAnswer(option)} className="bg-purple-600 hover:bg-purple-700 text-white font-semibold py-3 px-5 rounded-lg text-lg transition duration-200 transform hover:scale-105">
                                     {option}
                                 </button>
                             ))}
@@ -352,84 +382,90 @@ const App: React.FC = () => {
             case GameState.LevelComplete:
                 return (
                     <ScreenOverlay>
-                        <h2 className="text-5xl font-bold text-green-400">Level {level} Complete!</h2>
-                        <p className="text-2xl mt-2">Final Score: {score}</p>
+                        <h1 className="text-5xl font-bold text-green-400">Level {level} Complete!</h1>
+                        <p className="mt-4 text-2xl">Your Score: {score}</p>
                         <GameButton onClick={() => { setLevel(l => l + 1); setGameObjects([]); setGameState(GameState.Playing); }}>Next Level</GameButton>
                     </ScreenOverlay>
                 );
             case GameState.GameOver:
                 return (
                     <ScreenOverlay>
-                        <h2 className="text-6xl font-bold text-red-500">Game Over</h2>
-                        <p className="text-2xl mt-2">Final Score: {score}</p>
-                        <GameButton onClick={() => { resetGame(1); setGameState(GameState.StartScreen); }}>Play Again</GameButton>
+                        <h1 className="text-6xl font-bold text-red-500">Game Over</h1>
+                        <p className="mt-4 text-2xl">Final Score: {score}</p>
+                        <div className="flex gap-4">
+                            <GameButton onClick={() => { resetGame(level); setGameState(GameState.Playing); }}>Try Again</GameButton>
+                            <GameButton onClick={() => { resetGame(1); setGameState(GameState.StartScreen); }} className="bg-gray-500 hover:bg-gray-700">Main Menu</GameButton>
+                        </div>
                     </ScreenOverlay>
                 );
             case GameState.GameWon:
                 return (
                     <ScreenOverlay>
-                        <h2 className="text-6xl font-bold text-yellow-400">Congratulations!</h2>
-                        <p className="text-2xl mt-2">You've completed all levels!</p>
-                        <p className="text-3xl mt-4">Final Score: {score}</p>
+                        <h1 className="text-6xl font-bold text-yellow-400">Congratulations!</h1>
+                        <p className="mt-4 text-2xl">You've beaten all the levels!</p>
+                        <p className="mt-2 text-xl">Final Score: {score}</p>
                         <GameButton onClick={() => { resetGame(1); setGameState(GameState.StartScreen); }}>Play Again</GameButton>
                     </ScreenOverlay>
                 );
-            default: return null;
+            default:
+                return null;
         }
     };
     
-    const roadLineStyle: React.CSSProperties = {
-        position: 'absolute',
-        width: '2%',
-        height: '15%',
-        backgroundColor: 'rgba(255, 255, 255, 0.5)',
-        left: '49%',
+    const roadLineStyle = {
+      backgroundImage: 'linear-gradient(white 50%, transparent 50%)',
+      backgroundSize: `4px 50px`,
+      backgroundRepeat: 'repeat-y',
+      backgroundPosition: `center ${roadOffset.current}%`,
     };
 
     return (
-        <div className="min-h-screen flex items-center justify-center p-4">
-            <div 
-                className="bg-gray-700 relative overflow-hidden shadow-2xl border-4 border-slate-600"
-                style={{ width: `${GAME_WIDTH}px`, height: `${GAME_HEIGHT}px` }}
+      <div className="flex flex-col items-center justify-center min-h-screen font-mono">
+        <div 
+          ref={gameContainerRef}
+          className="relative bg-gray-600 overflow-hidden shadow-2xl border-4 border-gray-800"
+          style={{ width: GAME_WIDTH, height: GAME_HEIGHT }}
+        >
+          {gameState === GameState.Playing && <HUD lives={lives} score={score} level={level} />}
+          
+          {/* Road Lines */}
+          <div className="absolute top-0 left-1/4 w-1 h-full" style={roadLineStyle}></div>
+          <div className="absolute top-0 left-2/4 w-1 h-full" style={roadLineStyle}></div>
+          <div className="absolute top-0 left-3/4 w-1 h-full" style={roadLineStyle}></div>
+          
+          {/* Player */}
+          <div
+            className={`absolute transition-opacity duration-100 ${isInvincible ? 'opacity-50 animate-pulse' : 'opacity-100'}`}
+            style={{
+              left: `${player.x}%`,
+              bottom: `5%`,
+              width: `${player.width}%`,
+              height: `${player.height}%`,
+            }}
+          >
+            {ICONS.PLAYER}
+          </div>
+
+          {/* Game Objects */}
+          {gameObjects.map(obj => (
+            <div
+              key={obj.id}
+              className="absolute"
+              style={{
+                left: `${obj.x}%`,
+                top: `${obj.y}%`,
+                width: `${obj.width}%`,
+                height: `${obj.height}%`,
+              }}
             >
-                <div className="absolute inset-0 bg-repeat-y" style={{
-                    backgroundImage: 'linear-gradient(to right, #4a5568 48%, #4a5568 52%, transparent 52%, transparent 100%)',
-                    backgroundSize: '100% 100%',
-                    backgroundPosition: `${roadOffset.current}% 0`,
-                }}>
-                  {[...Array(5)].map((_, i) => (
-                      <div key={i} style={{ ...roadLineStyle, top: `${(i * 25 - 100 + roadOffset.current)}%` }}></div>
-                  ))}
-                  {[...Array(5)].map((_, i) => (
-                      <div key={i} style={{ ...roadLineStyle, top: `${(i * 25 + roadOffset.current)}%` }}></div>
-                  ))}
-                </div>
-
-
-                {gameState === GameState.Playing && <HUD lives={lives} score={score} level={level} />}
-                
-                {/* Player Car */}
-                <div 
-                    className={`absolute bottom-5 transition-opacity duration-300 ${isInvincible ? 'opacity-50 animate-pulse' : 'opacity-100'}`}
-                    style={{ left: `${player.x}%`, width: `${player.width}%`, height: `${player.height}%` }}
-                >
-                    {ICONS.PLAYER}
-                </div>
-
-                {/* Game Objects */}
-                {gameObjects.map(obj => (
-                    <div 
-                        key={obj.id} 
-                        className="absolute"
-                        style={{ left: `${obj.x}%`, top: `${obj.y}%`, width: `${obj.width}%`, height: `${obj.height}%` }}
-                    >
-                        {ICONS[obj.type]}
-                    </div>
-                ))}
-                
-                {renderGameState()}
+              {ICONS[obj.type]}
             </div>
+          ))}
+
+          {renderGameState()}
         </div>
+        <p className="mt-4 text-gray-400 text-sm">copyright LEARNIX Education</p>
+      </div>
     );
 };
 
